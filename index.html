@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>[hidden]{display:none!important}img{max-width:100%}</style>
+<title>Block Board Solver</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: two panels — the board you paint on the left, the piece tray and solve controls on the right; stacks on phones. */
+:root {
+  --bg: #f2f0f4;
+  --surface: #ffffff;
+  --fg: #1e1a25;
+  --muted: #6a6476;
+  --line: #d8d3de;
+  --accent: #8c1d40;
+  --accent-fg: #ffffff;
+  --cell-off: #e6e2ea;
+  --cell-on: #3a3245;
+  --cell-on-hover: #4d4459;
+  --ok: #2f7d4f;
+  --bad: #b3263e;
+  --p-T: #8f5be0; --p-O: #d9a72c; --p-L: #e27a32; --p-J: #3f74d4;
+  --p-S: #3f9f62; --p-Z: #d8475c; --p-I: #2f9db3;
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #131117; --surface: #1c1922; --fg: #ece8f1; --muted: #9b94a8; --line: #322d3b;
+    --accent: #e3557d; --accent-fg: #1a0f14; --cell-off: #221e29; --cell-on: #b9b0c6; --cell-on-hover: #d3cbe0;
+    --ok: #5ccf8a; --bad: #ff6b81; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #131117; --surface: #1c1922; --fg: #ece8f1; --muted: #9b94a8; --line: #322d3b;
+  --accent: #e3557d; --accent-fg: #1a0f14; --cell-off: #221e29; --cell-on: #b9b0c6; --cell-on-hover: #d3cbe0;
+  --ok: #5ccf8a; --bad: #ff6b81; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg); font: 15px/1.5 var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 28px 48px;
+}
+.wrap { max-width: 1080px; margin: 0 auto; display: grid; gap: 24px; }
+header h1 { font: 800 clamp(28px, 4.5vw, 40px)/1.05 var(--display); margin: 0; letter-spacing: -0.02em; text-wrap: balance; }
+header p { margin: 8px 0 0; color: var(--muted); max-width: 62ch; }
+.main { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+@media (max-width: 820px) { .main { grid-template-columns: minmax(0, 1fr); } }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; display: grid; gap: 14px; min-width: 0; }
+.panel h2 { font: 600 13px/1 var(--mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+label.num { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 14px; }
+input[type=number] { width: 4.2em; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); font: 500 14px var(--mono); }
+button { font: 700 14px var(--body); border-radius: 7px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); padding: 7px 12px; cursor: pointer; }
+button:hover { border-color: var(--muted); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); padding: 10px 18px; font-size: 15px; }
+button.primary:hover { filter: brightness(1.08); }
+button:disabled { opacity: 0.5; cursor: default; }
+
+/* Board */
+.board-wrap { width: 100%; max-width: 560px; }
+.board { display: grid; gap: 3px; touch-action: none; user-select: none; width: 100%; }
+.cell { position: relative; aspect-ratio: 1; border-radius: 3px; background: var(--cell-off); cursor: pointer; }
+.cell.on { background: var(--cell-on); }
+.board:not(.solved) .cell.on:hover { background: var(--cell-on-hover); }
+.cell.pc { border-radius: 0; }
+.cell.pc::after, .cell.pc::before { content: ""; position: absolute; background: inherit; }
+.cell.jr::after { top: 0; bottom: 0; right: -3px; width: 3px; }
+.cell.jb::before { left: 0; right: 0; bottom: -3px; height: 3px; }
+.cell .tag { position: absolute; inset: 0; display: grid; place-items: center; font: 500 clamp(9px, 1.6vw, 13px) var(--mono); color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.45); pointer-events: none; z-index: 1; }
+.hint { color: var(--muted); font-size: 13px; margin: 0; }
+
+/* Pieces */
+.pieces { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.piece { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.piece svg { grid-row: span 2; width: 38px; height: 38px; }
+.piece .nm { font-weight: 700; font-size: 14px; line-height: 1.2; }
+.stepper { display: inline-flex; align-items: center; gap: 4px; }
+.stepper button { width: 28px; height: 28px; padding: 0; font: 700 16px var(--mono); }
+.stepper output { min-width: 2ch; text-align: center; font: 500 15px var(--mono); font-variant-numeric: tabular-nums; }
+.check { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.tally { font: 500 13px/1.6 var(--mono); font-variant-numeric: tabular-nums; color: var(--muted); }
+.tally b { color: var(--fg); font-weight: 500; }
+.tally .ok { color: var(--ok); }
+.tally .bad { color: var(--bad); }
+.status { font-size: 14px; min-height: 1.5em; }
+.status.ok { color: var(--ok); font-weight: 700; }
+.status.bad { color: var(--bad); font-weight: 700; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px; }
+.legend span { font: 500 12px var(--mono); padding: 3px 8px; border-radius: 99px; color: #fff; }
+@media (prefers-reduced-motion: no-preference) { .cell { transition: background-color .12s; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>Block Board Solver</h1>
+    <p>Paint the area you need to fill, set how many of each block you have, then press Solve. The solver tries every way to fit them and shows a layout that covers every painted square.</p>
+  </header>
+
+  <div class="main">
+    <section class="panel" aria-labelledby="h-board">
+      <h2 id="h-board">1 · Draw the area</h2>
+      <div class="row">
+        <label class="num" for="rows">Rows <input id="rows" type="number" min="2" max="16" value="8"></label>
+        <label class="num" for="cols">Columns <input id="cols" type="number" min="2" max="16" value="8"></label>
+        <button id="btn-cross" type="button">Cross example</button>
+        <button id="btn-fill" type="button">Fill all</button>
+        <button id="btn-clear" type="button">Clear</button>
+      </div>
+      <div class="board-wrap"><div class="board" id="board" role="grid" aria-label="Puzzle area"></div></div>
+      <p class="hint">Click or drag to paint squares. Drag over painted squares to erase them.</p>
+    </section>
+
+    <section class="panel" aria-labelledby="h-pieces">
+      <h2 id="h-pieces">2 · Pick your pieces</h2>
+      <div class="pieces" id="pieces"></div>
+      <label class="check" for="flip"><input id="flip" type="checkbox"> Pieces can be flipped over (mirror images allowed)</label>
+      <div class="tally" id="tally"></div>
+      <div class="row">
+        <button class="primary" id="btn-solve" type="button">Solve</button>
+        <button id="btn-stop" type="button" hidden>Stop</button>
+      </div>
+      <div class="status" id="status" aria-live="polite"></div>
+      <div class="legend" id="legend"></div>
+    </section>
+  </div>
+</div>
+
+<script>
+const PIECES = [
+  { k: 'T', name: 'T',           cells: [[0,0],[0,1],[0,2],[1,1]] },
+  { k: 'O', name: 'Square',      cells: [[0,0],[0,1],[1,0],[1,1]] },
+  { k: 'L', name: 'L',           cells: [[0,0],[1,0],[2,0],[2,1]] },
+  { k: 'J', name: 'Backwards L', cells: [[0,1],[1,1],[2,1],[2,0]] },
+  { k: 'S', name: 'S',           cells: [[0,1],[0,2],[1,0],[1,1]] },
+  { k: 'Z', name: 'Reverse S',   cells: [[0,0],[0,1],[1,1],[1,2]] },
+  { k: 'I', name: 'Line',        cells: [[0,0],[1,0],[2,0],[3,0]] },
+];
+const NAME = Object.fromEntries(PIECES.map(p => [p.k, p.name]));
+const CROSS_COUNTS = { T: 4, O: 1, L: 1, J: 2, S: 2, Z: 2, I: 0 };
+
+let W = 8, H = 8, on = [], counts = { ...CROSS_COUNTS }, flip = false;
+let solution = null, worker = null;
+
+const $ = id => document.getElementById(id);
+const boardEl = $('board');
+
+function crossShape(h, w) {
+  const a = new Array(h * w).fill(false);
+  for (let r = 0; r < h; r++) for (let c = 0; c < w; c++)
+    a[r * w + c] = !((r < 2 || r > 5) && (c < 2 || c > 5));
+  return a;
+}
+
+function save() {
+  try { localStorage.setItem('bbs', JSON.stringify({ W, H, on, counts, flip })); } catch (e) {}
+}
+function load() {
+  try {
+    const s = JSON.parse(localStorage.getItem('bbs'));
+    if (s && s.W && s.H && Array.isArray(s.on) && s.on.length === s.W * s.H) {
+      W = s.W; H = s.H; on = s.on; counts = { ...CROSS_COUNTS, ...s.counts }; flip = !!s.flip; return;
+    }
+  } catch (e) {}
+  W = 8; H = 8; on = crossShape(8, 8);
+}
+
+/* ---------- board ---------- */
+function buildBoard() {
+  boardEl.style.gridTemplateColumns = `repeat(${W}, 1fr)`;
+  boardEl.parentElement.style.maxWidth = Math.min(560, W * 56) + 'px';
+  boardEl.innerHTML = '';
+  for (let i = 0; i < W * H; i++) {
+    const d = document.createElement('div');
+    d.className = 'cell'; d.dataset.i = i; d.setAttribute('role', 'gridcell');
+    boardEl.appendChild(d);
+  }
+  paintBoard();
+}
+function paintBoard() {
+  const kids = boardEl.children;
+  const owner = solution ? solution.owner : null;
+  boardEl.classList.toggle('solved', !!solution);
+  for (let i = 0; i < kids.length; i++) {
+    const d = kids[i];
+    d.className = 'cell' + (on[i] ? ' on' : '');
+    d.style.background = '';
+    d.innerHTML = '';
+    if (owner && owner[i] >= 0) {
+      const id = owner[i], p = solution.placed[id];
+      const r = (i / W) | 0, c = i % W;
+      d.classList.add('pc');
+      if (c + 1 < W && owner[i + 1] === id) d.classList.add('jr');
+      if (r + 1 < H && owner[i + W] === id) d.classList.add('jb');
+      d.style.background = `var(--p-${p.k})`;
+      if (p.idx[0] === i) d.innerHTML = `<span class="tag">${id + 1}</span>`;
+    }
+  }
+  d_tally();
+}
+function clearSolution() {
+  if (solution) { solution = null; $('legend').innerHTML = ''; setStatus(''); }
+}
+
+let painting = false, paintVal = true;
+function cellAt(x, y) {
+  const el = document.elementFromPoint(x, y);
+  return el && el.closest && el.closest('.cell');
+}
+function setCell(i) {
+  if (on[i] === paintVal) return;
+  on[i] = paintVal;
+  clearSolution();
+  paintBoard();
+}
+boardEl.addEventListener('pointerdown', e => {
+  const cell = e.target.closest('.cell'); if (!cell) return;
+  e.preventDefault();
+  const i = +cell.dataset.i;
+  painting = true; paintVal = !on[i];
+  boardEl.setPointerCapture(e.pointerId);
+  setCell(i);
+});
+boardEl.addEventListener('pointermove', e => {
+  if (!painting) return;
+  const cell = cellAt(e.clientX, e.clientY);
+  if (cell && boardEl.contains(cell)) setCell(+cell.dataset.i);
+});
+const endPaint = () => { if (painting) { painting = false; save(); } };
+boardEl.addEventListener('pointerup', endPaint);
+boardEl.addEventListener('pointercancel', endPaint);
+
+function resize(h, w) {
+  h = Math.max(2, Math.min(16, h | 0)); w = Math.max(2, Math.min(16, w | 0));
+  const next = new Array(h * w).fill(false);
+  for (let r = 0; r < Math.min(h, H); r++) for (let c = 0; c < Math.min(w, W); c++) next[r * w + c] = on[r * W + c];
+  H = h; W = w; on = next;
+  $('rows').value = H; $('cols').value = W;
+  clearSolution(); buildBoard(); save();
+}
+$('rows').addEventListener('change', e => resize(+e.target.value, W));
+$('cols').addEventListener('change', e => resize(H, +e.target.value));
+$('btn-clear').onclick = () => { on = on.map(() => false); clearSolution(); paintBoard(); save(); };
+$('btn-fill').onclick = () => { on = on.map(() => true); clearSolution(); paintBoard(); save(); };
+$('btn-cross').onclick = () => {
+  H = 8; W = 8; on = crossShape(8, 8); counts = { ...CROSS_COUNTS };
+  $('rows').value = 8; $('cols').value = 8;
+  clearSolution(); buildBoard(); buildPieces(); save();
+};
+
+/* ---------- pieces ---------- */
+function pieceSvg(p) {
+  const s = 9, pad = 1;
+  const rects = p.cells.map(([r, c]) => `<rect x="${c * s + pad}" y="${r * s + pad}" width="${s - 1.5}" height="${s - 1.5}" rx="1.5" fill="var(--p-${p.k})"/>`).join('');
+  const w = Math.max(...p.cells.map(x => x[1])) + 1, h = Math.max(...p.cells.map(x => x[0])) + 1;
+  return `<svg viewBox="0 0 ${Math.max(w, h) * s + pad} ${Math.max(w, h) * s + pad}" aria-hidden="true">${rects}</svg>`;
+}
+function buildPieces() {
+  $('pieces').innerHTML = PIECES.map(p => `
+    <div class="piece">
+      ${pieceSvg(p)}
+      <span class="nm">${p.name}</span>
+      <span class="stepper">
+        <button type="button" data-k="${p.k}" data-d="-1" aria-label="Fewer ${p.name}">−</button>
+        <output id="cnt-${p.k}">${counts[p.k]}</output>
+        <button type="button" data-k="${p.k}" data-d="1" aria-label="More ${p.name}">+</button>
+      </span>
+    </div>`).join('');
+  $('flip').checked = flip;
+  d_tally();
+}
+$('pieces').addEventListener('click', e => {
+  const b = e.target.closest('button[data-k]'); if (!b) return;
+  const k = b.dataset.k;
+  counts[k] = Math.max(0, Math.min(64, counts[k] + +b.dataset.d));
+  $('cnt-' + k).textContent = counts[k];
+  clearSolution(); d_tally(); save();
+});
+$('flip').addEventListener('change', e => { flip = e.target.checked; clearSolution(); save(); });
+
+function d_tally() {
+  const area = on.filter(Boolean).length;
+  const n = Object.values(counts).reduce((a, b) => a + b, 0);
+  let msg;
+  if (area === 0) msg = '<span>Paint some squares first.</span>';
+  else if (area % 4) msg = `<span class="bad">${area} squares is not a multiple of 4, so blocks can't cover it exactly.</span>`;
+  else if (n * 4 < area) msg = `<span class="bad">Need ${area / 4} pieces, you have ${n}.</span>`;
+  else if (n * 4 > area) msg = `<span class="ok">${n - area / 4} piece(s) will be left over.</span>`;
+  else msg = '<span class="ok">Piece count matches exactly.</span>';
+  $('tally').innerHTML = `Area <b>${area}</b> squares · Pieces <b>${n}</b> (${n * 4} squares)<br>${msg}`;
+}
+
+/* ---------- solver (runs in a worker so the page stays responsive) ---------- */
+function orientations(cells, allowFlip) {
+  const out = new Map();
+  let shapes = [cells];
+  if (allowFlip) shapes.push(cells.map(([r, c]) => [r, -c]));
+  for (let s of shapes) {
+    for (let t = 0; t < 4; t++) {
+      s = s.map(([r, c]) => [c, -r]);
+      const sorted = [...s].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+      const [ar, ac] = sorted[0];
+      const norm = sorted.map(([r, c]) => [r - ar, c - ac]);
+      out.set(JSON.stringify(norm), norm);
+    }
+  }
+  return [...out.values()];
+}
+
+function workerMain() {
+  self.onmessage = e => {
+    const { W, H, on, counts, orients, order } = e.data;
+    const N = W * H, board = new Int16Array(N).fill(-2);
+    for (let i = 0; i < N; i++) if (on[i]) board[i] = -1;
+    const left = { ...counts }, placed = [], seen = new Uint8Array(N), stack = new Int32Array(N);
+    let nodes = 0;
+    const t0 = Date.now();
+    function regionsOk() {
+      seen.fill(0);
+      for (let i = 0; i < N; i++) {
+        if (board[i] !== -1 || seen[i]) continue;
+        let sp = 0, size = 0; stack[sp++] = i; seen[i] = 1;
+        while (sp) {
+          const j = stack[--sp]; size++;
+          const r = (j / W) | 0, c = j % W;
+          if (c > 0 && board[j - 1] === -1 && !seen[j - 1]) { seen[j - 1] = 1; stack[sp++] = j - 1; }
+          if (c < W - 1 && board[j + 1] === -1 && !seen[j + 1]) { seen[j + 1] = 1; stack[sp++] = j + 1; }
+          if (r > 0 && board[j - W] === -1 && !seen[j - W]) { seen[j - W] = 1; stack[sp++] = j - W; }
+          if (r < H - 1 && board[j + W] === -1 && !seen[j + W]) { seen[j + W] = 1; stack[sp++] = j + W; }
+        }
+        if (size % 4) return false;
+      }
+      return true;
+    }
+    function rec(from) {
+      let i = from;
+      while (i < N && board[i] !== -1) i++;
+      if (i >= N) return true;
+      if ((++nodes & 0x3fff) === 0) postMessage({ type: 'progress', nodes, ms: Date.now() - t0 });
+      const r = (i / W) | 0, c = i % W;
+      for (const k of order) {
+        if (!left[k]) continue;
+        for (const o of orients[k]) {
+          const idx = [];
+          let ok = true;
+          for (const [dr, dc] of o) {
+            const rr = r + dr, cc = c + dc;
+            if (rr < 0 || rr >= H || cc < 0 || cc >= W) { ok = false; break; }
+            const j = rr * W + cc;
+            if (board[j] !== -1) { ok = false; break; }
+            idx.push(j);
+          }
+          if (!ok) continue;
+          const id = placed.length;
+          for (const j of idx) board[j] = id;
+          placed.push({ k, idx }); left[k]--;
+          if (regionsOk() && rec(i + 1)) return true;
+          left[k]++; placed.pop();
+          for (const j of idx) board[j] = -1;
+        }
+      }
+      return false;
+    }
+    const ok = regionsOk() && rec(0);
+    postMessage({ type: 'done', ok, placed: ok ? placed : null, nodes, ms: Date.now() - t0 });
+  };
+}
+const workerUrl = URL.createObjectURL(new Blob([`(${workerMain.toString()})()`], { type: 'text/javascript' }));
+
+function setStatus(text, cls) { const s = $('status'); s.textContent = text; s.className = 'status' + (cls ? ' ' + cls : ''); }
+function stopWorker() { if (worker) { worker.terminate(); worker = null; } $('btn-solve').disabled = false; $('btn-stop').hidden = true; }
+
+$('btn-solve').onclick = () => {
+  clearSolution(); paintBoard();
+  const area = on.filter(Boolean).length;
+  const n = Object.values(counts).reduce((a, b) => a + b, 0);
+  if (!area) return setStatus('Paint the area to fill first.', 'bad');
+  if (area % 4) return setStatus(`The area has ${area} squares. It must be a multiple of 4.`, 'bad');
+  if (n * 4 < area) return setStatus(`You need ${area / 4} pieces but picked ${n}. Add more pieces.`, 'bad');
+  const orients = {};
+  for (const p of PIECES) orients[p.k] = orientations(p.cells, flip);
+  // Try scarce shapes and the square first; they are the hardest to fit late.
+  const order = PIECES.map(p => p.k).filter(k => counts[k] > 0)
+    .sort((a, b) => orients[a].length - orients[b].length || counts[a] - counts[b]);
+  stopWorker();
+  worker = new Worker(workerUrl);
+  $('btn-solve').disabled = true; $('btn-stop').hidden = false;
+  setStatus('Searching…');
+  worker.onmessage = e => {
+    const m = e.data;
+    if (m.type === 'progress') { setStatus(`Searching… ${m.nodes.toLocaleString()} positions tried (${(m.ms / 1000).toFixed(1)}s)`); return; }
+    stopWorker();
+    if (!m.ok) { setStatus(`No layout fits. Checked every option in ${(m.ms / 1000).toFixed(2)}s. Try allowing flips or changing the pieces.`, 'bad'); return; }
+    const owner = new Int16Array(W * H).fill(-1);
+    m.placed.forEach((p, id) => p.idx.forEach(j => owner[j] = id));
+    solution = { placed: m.placed, owner };
+    paintBoard();
+    setStatus(`Solved in ${(m.ms / 1000).toFixed(2)}s. Numbers mark each piece.`, 'ok');
+    $('legend').innerHTML = m.placed.map((p, id) => `<span style="background:var(--p-${p.k})">${id + 1} · ${NAME[p.k]}</span>`).join('');
+  };
+};
+$('btn-stop').onclick = () => { stopWorker(); setStatus('Stopped.'); };
+
+load();
+$('rows').value = H; $('cols').value = W;
+buildBoard(); buildPieces();
+</script>
+</body>
+</html>
