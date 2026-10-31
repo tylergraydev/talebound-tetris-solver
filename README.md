@@ -1,4 +1,4 @@
-# Block Board Solver
+# Talebound Tetris Solver
 
 Paint any area on a grid, choose how many of each four-square block (T, Square, L, Backwards L, S, Reverse S, Line) you have, and the solver finds a layout that fills the area exactly.
 
