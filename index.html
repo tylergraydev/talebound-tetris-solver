@@ -95,6 +95,16 @@ button:disabled { opacity: 0.5; cursor: default; }
 .status.bad { color: var(--bad); font-weight: 700; }
 .legend { display: flex; flex-wrap: wrap; gap: 6px; }
 .legend span { font: 500 12px var(--mono); padding: 3px 8px; border-radius: 99px; color: #fff; }
+.seen-head { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; justify-content: space-between; }
+.seen-count { font: 800 22px/1.1 var(--display); }
+.seen-count small { font: 400 14px var(--body); color: var(--muted); }
+.seen-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 10px; }
+.seen-card { display: grid; gap: 8px; text-align: left; padding: 10px; font-weight: 400; }
+.mini { display: grid; gap: 1px; width: 100%; max-width: 96px; }
+.mini i { aspect-ratio: 1; border-radius: 1px; background: transparent; }
+.mini i.on { background: var(--cell-on); }
+.seen-meta { font: 500 11px/1.5 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.seen-meta b { color: var(--fg); font-weight: 500; }
 @media (prefers-reduced-motion: no-preference) { .cell { transition: background-color .12s; } }
 </style>
 </head>
@@ -132,6 +142,16 @@ button:disabled { opacity: 0.5; cursor: default; }
       <div class="legend" id="legend"></div>
     </section>
   </div>
+
+  <section class="panel" aria-labelledby="h-seen">
+    <div class="seen-head">
+      <h2 id="h-seen">3 · Puzzles seen so far</h2>
+      <button id="btn-refresh" type="button">Refresh</button>
+    </div>
+    <div class="seen-count" id="seen-count">…</div>
+    <p class="hint">Every solved puzzle is saved for everyone, so the same puzzle loads instantly next time. Rotated copies of a board count as the same puzzle. Click one to load it.</p>
+    <div class="seen-grid" id="seen-grid"></div>
+  </section>
 </div>
 
 <script>
@@ -376,13 +396,81 @@ const workerUrl = URL.createObjectURL(new Blob([`(${workerMain.toString()})()`],
 function setStatus(text, cls) { const s = $('status'); s.textContent = text; s.className = 'status' + (cls ? ' ' + cls : ''); }
 function stopWorker() { if (worker) { worker.terminate(); worker = null; } $('btn-solve').disabled = false; $('btn-stop').hidden = true; }
 
-$('btn-solve').onclick = () => {
+/* ---------- saved puzzles (shared through /api/puzzles) ---------- */
+async function api(body) {
+  const r = await fetch('/api/puzzles', body
+    ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+    : undefined);
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || `Request failed (${r.status})`);
+  return j;
+}
+const snapshot = () => JSON.stringify([W, H, on, counts]);
+const times = n => n === 1 ? 'once' : `${n} times`;
+
+function showSolution(placed) {
+  const owner = new Int16Array(W * H).fill(-1);
+  placed.forEach((p, id) => p.idx.forEach(j => owner[j] = id));
+  solution = { placed, owner };
+  paintBoard();
+  $('legend').innerHTML = placed.map((p, id) => `<span style="background:var(--p-${p.k})">${id + 1} · ${NAME[p.k]}</span>`).join('');
+}
+
+function hexToOn(hex, h, w) {
+  const out = [];
+  for (let i = 0; i < h * w; i++) out.push(((parseInt(hex[i >> 2], 16) >> (3 - (i & 3))) & 1) === 1);
+  return out;
+}
+
+async function loadSeen() {
+  try {
+    const { distinct, puzzles } = await api();
+    $('seen-count').innerHTML = `${distinct} <small>distinct ${distinct === 1 ? 'puzzle' : 'puzzles'} solved</small>`;
+    $('seen-grid').innerHTML = puzzles.map((p, i) => {
+      const cells = hexToOn(p.shape.hex, p.shape.h, p.shape.w).map(v => `<i class="${v ? 'on' : ''}"></i>`).join('');
+      const pieces = PIECES.filter(x => p.counts[x.k]).map(x => `${x.k}${p.counts[x.k]}`).join(' ');
+      const date = p.firstSeen ? new Date(+p.firstSeen).toLocaleDateString() : '';
+      return `<button class="seen-card" type="button" data-i="${i}" aria-label="Load puzzle ${i + 1}">
+        <div class="mini" style="grid-template-columns:repeat(${p.shape.w},1fr)">${cells}</div>
+        <div class="seen-meta"><b>Seen ${times(+p.seen)}</b><br>${pieces}<br>${date}</div>
+      </button>`;
+    }).join('');
+    $('seen-grid').onclick = e => {
+      const b = e.target.closest('.seen-card'); if (!b) return;
+      const p = puzzles[+b.dataset.i];
+      H = p.shape.h; W = p.shape.w; on = hexToOn(p.shape.hex, H, W);
+      counts = Object.fromEntries(PIECES.map(x => [x.k, p.counts[x.k] | 0]));
+      $('rows').value = H; $('cols').value = W;
+      clearSolution(); buildBoard(); buildPieces(); save();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      $('btn-solve').click();
+    };
+  } catch (e) {
+    $('seen-count').innerHTML = '<small>Saved puzzles could not be loaded. They only work on the live site.</small>';
+  }
+}
+$('btn-refresh').onclick = loadSeen;
+
+$('btn-solve').onclick = async () => {
   clearSolution(); paintBoard();
   const area = on.filter(Boolean).length;
   const n = Object.values(counts).reduce((a, b) => a + b, 0);
   if (!area) return setStatus('Paint the area to fill first.', 'bad');
   if (area % 4) return setStatus(`The area has ${area} squares. It must be a multiple of 4.`, 'bad');
   if (n * 4 < area) return setStatus(`You need ${area / 4} pieces but picked ${n}. Add more pieces.`, 'bad');
+  const asked = snapshot();
+  $('btn-solve').disabled = true;
+  setStatus('Checking saved solutions…');
+  let hit = null;
+  try { hit = await api({ action: 'lookup', W, H, on, counts }); } catch (e) { hit = null; }
+  $('btn-solve').disabled = false;
+  if (snapshot() !== asked) return setStatus('');
+  if (hit && hit.found) {
+    showSolution(hit.placed);
+    setStatus(`Loaded the saved solution. This puzzle has been seen ${times(hit.seen)}.`, 'ok');
+    loadSeen();
+    return;
+  }
   const orients = {};
   for (const p of PIECES) orients[p.k] = orientations(p.cells, flip);
   // Try scarce shapes and the square first; they are the hardest to fit late.
@@ -397,12 +485,12 @@ $('btn-solve').onclick = () => {
     if (m.type === 'progress') { setStatus(`Searching… ${m.nodes.toLocaleString()} positions tried (${(m.ms / 1000).toFixed(1)}s)`); return; }
     stopWorker();
     if (!m.ok) { setStatus(`No layout fits. Checked every option in ${(m.ms / 1000).toFixed(2)}s. Try changing the pieces.`, 'bad'); return; }
-    const owner = new Int16Array(W * H).fill(-1);
-    m.placed.forEach((p, id) => p.idx.forEach(j => owner[j] = id));
-    solution = { placed: m.placed, owner };
-    paintBoard();
-    setStatus(`Solved in ${(m.ms / 1000).toFixed(2)}s. Numbers mark each piece.`, 'ok');
-    $('legend').innerHTML = m.placed.map((p, id) => `<span style="background:var(--p-${p.k})">${id + 1} · ${NAME[p.k]}</span>`).join('');
+    showSolution(m.placed);
+    const solved = `Solved in ${(m.ms / 1000).toFixed(2)}s. Numbers mark each piece.`;
+    setStatus(solved, 'ok');
+    api({ action: 'save', W, H, on, counts, placed: m.placed })
+      .then(r => { if (snapshot() === asked) setStatus(`${solved} ${r.saved ? 'Saved as a new puzzle.' : `Seen ${times(r.seen)}.`}`, 'ok'); loadSeen(); })
+      .catch(() => {});
   };
   worker.postMessage({ W, H, on, counts, orients, order });
 };
@@ -410,7 +498,7 @@ $('btn-stop').onclick = () => { stopWorker(); setStatus('Stopped.'); };
 
 load();
 $('rows').value = H; $('cols').value = W;
-buildBoard(); buildPieces();
+buildBoard(); buildPieces(); loadSeen();
 </script>
 </body>
 </html>
