@@ -407,6 +407,7 @@ $('btn-solve').onclick = () => {
     setStatus(`Solved in ${(m.ms / 1000).toFixed(2)}s. Numbers mark each piece.`, 'ok');
     $('legend').innerHTML = m.placed.map((p, id) => `<span style="background:var(--p-${p.k})">${id + 1} · ${NAME[p.k]}</span>`).join('');
   };
+  worker.postMessage({ W, H, on, counts, orients, order });
 };
 $('btn-stop').onclick = () => { stopWorker(); setStatus('Stopped.'); };
 
