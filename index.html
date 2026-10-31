@@ -123,7 +123,6 @@ button:disabled { opacity: 0.5; cursor: default; }
     <section class="panel" aria-labelledby="h-pieces">
       <h2 id="h-pieces">2 · Pick your pieces</h2>
       <div class="pieces" id="pieces"></div>
-      <label class="check" for="flip"><input id="flip" type="checkbox"> Pieces can be flipped over (mirror images allowed)</label>
       <div class="tally" id="tally"></div>
       <div class="row">
         <button class="primary" id="btn-solve" type="button">Solve</button>
@@ -168,7 +167,7 @@ function load() {
   try {
     const s = JSON.parse(localStorage.getItem('bbs'));
     if (s && s.W && s.H && Array.isArray(s.on) && s.on.length === s.W * s.H) {
-      W = s.W; H = s.H; on = s.on; counts = { ...CROSS_COUNTS, ...s.counts }; flip = !!s.flip; return;
+      W = s.W; H = s.H; on = s.on; counts = { ...CROSS_COUNTS, ...s.counts }; return;
     }
   } catch (e) {}
   W = 8; H = 8; on = crossShape(8, 8);
@@ -275,7 +274,6 @@ function buildPieces() {
         <button type="button" data-k="${p.k}" data-d="1" aria-label="More ${p.name}">+</button>
       </span>
     </div>`).join('');
-  $('flip').checked = flip;
   d_tally();
 }
 $('pieces').addEventListener('click', e => {
@@ -285,7 +283,6 @@ $('pieces').addEventListener('click', e => {
   $('cnt-' + k).textContent = counts[k];
   clearSolution(); d_tally(); save();
 });
-$('flip').addEventListener('change', e => { flip = e.target.checked; clearSolution(); save(); });
 
 function d_tally() {
   const area = on.filter(Boolean).length;
@@ -399,7 +396,7 @@ $('btn-solve').onclick = () => {
     const m = e.data;
     if (m.type === 'progress') { setStatus(`Searching… ${m.nodes.toLocaleString()} positions tried (${(m.ms / 1000).toFixed(1)}s)`); return; }
     stopWorker();
-    if (!m.ok) { setStatus(`No layout fits. Checked every option in ${(m.ms / 1000).toFixed(2)}s. Try allowing flips or changing the pieces.`, 'bad'); return; }
+    if (!m.ok) { setStatus(`No layout fits. Checked every option in ${(m.ms / 1000).toFixed(2)}s. Try changing the pieces.`, 'bad'); return; }
     const owner = new Int16Array(W * H).fill(-1);
     m.placed.forEach((p, id) => p.idx.forEach(j => owner[j] = id));
     solution = { placed: m.placed, owner };
